@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -27,6 +28,7 @@ class TaskScheduler:
         self.ip_check_cron = ip_check_cron
         self.keep_alive_interval_minutes = keep_alive_interval_minutes
         self._scheduler = BackgroundScheduler()
+        self._executor = ThreadPoolExecutor(max_workers=1)
         self._last_ip: str | None = None
 
     def start(self):
@@ -35,13 +37,14 @@ class TaskScheduler:
         self._scheduler.start()
         logger.info("定时任务调度器已启动")
 
-        # 启动时立即执行一次 IP 检测
-        self._check_ip_job()
+        # 启动时在线程中立即执行一次 IP 检测（避免在 asyncio 事件循环中直接跑 Playwright）
+        self._executor.submit(self._check_ip_job)
 
     def shutdown(self):
         if self._scheduler.running:
             self._scheduler.shutdown()
-            logger.info("定时任务调度器已停止")
+        self._executor.shutdown(wait=False)
+        logger.info("定时任务调度器已停止")
 
     def _add_ip_check_job(self):
         try:
@@ -98,7 +101,8 @@ class TaskScheduler:
         if not changed:
             return {"status": "ok", "message": "IP 未变化", "ip": ip}
 
-        ok = self.browser.run_update_flow(ip, self.app_ids)
+        future = self._executor.submit(self.browser.run_update_flow, ip, self.app_ids)
+        ok = future.result()
         if ok:
             self.ip_checker.save_ip(ip)
             return {"status": "ok", "message": "IP 已更新", "ip": ip}
