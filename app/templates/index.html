@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}状态面板{% endblock %}
+{% block content %}
+<h2 class="text-xl font-bold mb-4">服务状态</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-sm text-gray-500">当前公网 IP</div>
+        <div class="text-xl font-mono mt-1">{{ current_ip or '未获取' }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-sm text-gray-500">已注册 IP</div>
+        <div class="mt-1">
+            {% if registered_ip %}
+                <span class="text-xl font-mono">{{ registered_ip }}</span>
+            {% else %}
+                <span class="text-gray-400">未注册</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-sm text-gray-500">IP 状态</div>
+        <div class="mt-1">
+            {% if ip_match %}
+            <span class="inline-block bg-green-100 text-green-800 text-sm px-2 py-1 rounded">IP 一致</span>
+            {% elif registered_ip %}
+            <span class="inline-block bg-red-100 text-red-800 text-sm px-2 py-1 rounded">IP 不一致，需更新</span>
+            {% else %}
+            <span class="inline-block bg-yellow-100 text-yellow-800 text-sm px-2 py-1 rounded">尚未注册</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-sm text-gray-500">Cookie 状态</div>
+        <div class="mt-1">
+            {% if has_cookie %}
+            <span class="inline-block bg-green-100 text-green-800 text-sm px-2 py-1 rounded">有效</span>
+            {% else %}
+            <span class="inline-block bg-red-100 text-red-800 text-sm px-2 py-1 rounded">无 Cookie</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-sm text-gray-500">监控应用</div>
+        <div class="text-sm font-mono mt-1">{{ app_ids | join(', ') }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-sm text-gray-500">下次 IP 检测</div>
+        <div class="text-sm font-mono mt-1">{{ next_run or '未知' }}</div>
+    </div>
+</div>
+
+{% if has_qrcode %}
+<div class="bg-white rounded-lg shadow p-6 mb-8">
+    <h3 class="text-lg font-bold mb-3 text-red-600">需要扫码登录</h3>
+    <p class="text-sm text-gray-500 mb-3">Cookie 已失效，请用企业微信扫描下方二维码重新登录</p>
+    <img src="/console/qrcode" alt="登录二维码" class="w-48 h-48 border rounded">
+    <p class="text-xs text-gray-400 mt-2">扫码成功后此区域会自动消失，页面会自动刷新</p>
+    <script>
+        setTimeout(() => location.reload(), 15000);
+    </script>
+</div>
+{% endif %}
+
+<h2 class="text-xl font-bold mb-4">操作</h2>
+<div class="flex flex-wrap gap-3">
+    <form method="post" action="/console/trigger-check">
+        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
+            触发 IP 检测
+        </button>
+    </form>
+    <form method="post" action="/console/force-update">
+        <button type="submit" class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600 transition">
+            强制更新 IP
+        </button>
+    </form>
+    <form method="post" action="/console/clear-cookies">
+        <button type="submit" onclick="return confirm('确定清除 Cookie？下次需要重新扫码登录。')"
+            class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition">
+            清除 Cookie
+        </button>
+    </form>
+</div>
+{% endblock %}

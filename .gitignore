@@ -29,6 +29,8 @@ env.bak/
 data/*.json
 data/*.txt
 data/*.log
+data/*.png
+data/*.hash
 data/cookies/
 data/ip_cache/
 

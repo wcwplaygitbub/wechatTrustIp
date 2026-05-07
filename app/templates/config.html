@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}配置{% endblock %}
+{% block content %}
+<h2 class="text-xl font-bold mb-4">配置管理</h2>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- 只读配置 -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <h3 class="font-bold mb-4 text-gray-700">只读配置</h3>
+        <dl class="space-y-3 text-sm">
+            <div>
+                <dt class="text-gray-500">Webhook Key</dt>
+                <dd class="font-mono mt-1">{{ config.wework_webhook_key[:8] }}****</dd>
+            </div>
+            <div>
+                <dt class="text-gray-500">无头模式</dt>
+                <dd class="mt-1">{{ '开启' if config.headless else '关闭' }}</dd>
+            </div>
+            <div>
+                <dt class="text-gray-500">扫码超时</dt>
+                <dd class="mt-1">{{ config.qr_timeout_seconds }} 秒</dd>
+            </div>
+            <div>
+                <dt class="text-gray-500">服务端口</dt>
+                <dd class="mt-1">{{ config.port }}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <!-- 可编辑配置 -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <h3 class="font-bold mb-4 text-gray-700">可编辑配置（热更新）</h3>
+        <form method="post" action="/console/config" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">IP 检测 Cron</label>
+                <input type="text" name="ip_check_cron" value="{{ config.ip_check_cron }}"
+                    class="mt-1 w-full border rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-400 mt-1">当前: {{ config.ip_check_cron }}</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">应用 ID（逗号分隔）</label>
+                <input type="text" name="app_ids" value="{{ config.wework_app_ids | join(', ') }}"
+                    class="mt-1 w-full border rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button type="submit"
+                class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
+                保存并热更新
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

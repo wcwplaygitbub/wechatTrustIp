@@ -11,12 +11,16 @@ from app.ip_checker import IPChecker
 from app.notifier import Notifier
 from app.browser import WeWorkBrowser
 from app.scheduler import TaskScheduler
+from app.log_buffer import log_buffer
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# 挂载日志缓冲区
+logging.getLogger().addHandler(log_buffer)
 
 # 初始化组件
 cookie_manager = CookieManager(cookie_file=settings.cookie_file)
@@ -49,6 +53,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="企业微信可信IP自动更新服务", lifespan=lifespan)
+
+# 挂载控制台路由
+from app.console import router as console_router
+app.include_router(console_router)
 
 
 @app.get("/health")

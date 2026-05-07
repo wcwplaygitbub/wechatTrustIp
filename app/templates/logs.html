@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}日志{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-bold">最近日志</h2>
+    <form method="post" action="/console/clear-logs">
+        <button type="submit" class="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600 transition">
+            清除日志
+        </button>
+    </form>
+</div>
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-4 py-2 text-left text-gray-600 w-40">时间</th>
+                <th class="px-4 py-2 text-left text-gray-600 w-16">级别</th>
+                <th class="px-4 py-2 text-left text-gray-600 w-32">模块</th>
+                <th class="px-4 py-2 text-left text-gray-600">内容</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in entries %}
+            <tr class="border-t hover:bg-gray-50">
+                <td class="px-4 py-2 font-mono text-xs">{{ entry.time }}</td>
+                <td class="px-4 py-2">
+                    {% if entry.level == 'ERROR' %}
+                    <span class="text-red-600 font-bold">ERROR</span>
+                    {% elif entry.level == 'WARNING' %}
+                    <span class="text-yellow-600 font-bold">WARN</span>
+                    {% else %}
+                    <span class="text-gray-600">{{ entry.level }}</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-2 font-mono text-xs">{{ entry.module }}</td>
+                <td class="px-4 py-2">{{ entry.message }}
+                    {% if '需要扫码登录' in entry.message or '二维码已推送' in entry.message or '截取二维码失败' in entry.message %}
+                    <div class="mt-2">
+                        {% if qrcode_exists %}
+                        <img src="/console/qrcode" alt="登录二维码" class="w-40 h-40 border rounded cursor-pointer" onclick="this.style.width=this.style.width==='200px'?'160px':'200px'">
+                        <p class="text-xs text-gray-400">点击可放大</p>
+                        {% else %}
+                        <span class="text-xs text-yellow-600">⏳ 二维码已超时，请在首页重新触发以获取新二维码</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not entries %}
+            <tr><td colspan="4" class="px-4 py-8 text-center text-gray-400">暂无日志</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -33,7 +33,9 @@ class TaskScheduler:
 
     def start(self):
         self._add_ip_check_job()
-        self._add_keep_alive_job()
+        # 不再注册 Cookie 保活任务：企业微信 Web 管理后台会话互斥，
+        # 保活操作本身会淘汰当前会话导致 Cookie 失效。
+        # Cookie 只在 IP 检测时顺带检查，失效则触发扫码流程。
         self._scheduler.start()
         logger.info("定时任务调度器已启动")
 

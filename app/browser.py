@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import requests
 from playwright.sync_api import sync_playwright, Page, BrowserContext, Browser
@@ -9,6 +10,7 @@ from app.notifier import Notifier
 logger = logging.getLogger(__name__)
 
 WEWORK_LOGIN_URL = "https://work.weixin.qq.com/wework_admin/loginpage_wx?from=myhome"
+WEWORK_HOME_URL = "https://work.weixin.qq.com/wework_admin/frame"
 APP_BASE_URL = "https://work.weixin.qq.com/wework_admin/frame#apps/modApiApp/"
 
 # 页面元素选择器
@@ -39,6 +41,10 @@ class WeWorkBrowser:
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
 
+    @property
+    def qrcode_file(self) -> str:
+        return os.path.join(os.path.dirname(self.cookie_manager.cookie_file), "qrcode.png")
+
     def _start_browser(self) -> Page:
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(
@@ -53,6 +59,38 @@ class WeWorkBrowser:
         page = self._context.new_page()
         page.goto(WEWORK_LOGIN_URL)
         time.sleep(3)
+        return page
+
+    def _start_browser_to_home(self) -> Page:
+        """启动浏览器并直接访问管理后台首页（不经过登录页）。
+        用于 Cookie 保活，避免触发登录页的重新登录机制。"""
+        self._playwright = sync_playwright().start()
+        self._browser = self._playwright.chromium.launch(
+            headless=self.headless, args=["--lang=zh-CN"]
+        )
+        self._context = self._browser.new_context()
+
+        cookies = self.cookie_manager.load()
+        if cookies:
+            self._context.add_cookies(cookies)
+
+        page = self._context.new_page()
+        page.goto(WEWORK_HOME_URL)
+        time.sleep(3)
+        return page
+
+    def _start_browser_clean(self) -> Page:
+        """启动干净浏览器（不加载旧 Cookie）直接访问登录页。
+        用于 Cookie 已失效时获取二维码，避免旧 Cookie 导致服务端重定向。"""
+        self._playwright = sync_playwright().start()
+        self._browser = self._playwright.chromium.launch(
+            headless=self.headless, args=["--lang=zh-CN"]
+        )
+        self._context = self._browser.new_context()
+
+        page = self._context.new_page()
+        page.goto(WEWORK_LOGIN_URL)
+        time.sleep(5)
         return page
 
     def _close_browser(self):
@@ -94,16 +132,25 @@ class WeWorkBrowser:
 
     def capture_qrcode(self, page: Page) -> bytes | None:
         try:
-            page.wait_for_selector(SELECTOR_IFRAME, timeout=5000)
+            logger.info(f"尝试获取二维码，当前 URL: {page.url}")
+            # 先截图看看页面实际内容
+            debug_path = os.path.join(os.path.dirname(self.cookie_manager.cookie_file), "debug_login.png")
+            page.screenshot(path=debug_path)
+            logger.info(f"调试截图已保存: {debug_path}")
+
+            page.wait_for_selector(SELECTOR_IFRAME, timeout=10000)
             iframe_element = page.query_selector(SELECTOR_IFRAME)
             if not iframe_element:
+                logger.error("iframe 元素未找到")
                 return None
             frame = iframe_element.content_frame()
             if not frame:
+                logger.error("iframe content_frame 为空")
                 return None
 
             qr_element = frame.query_selector(SELECTOR_QRCODE_IMG)
             if not qr_element:
+                logger.error("二维码图片元素未找到")
                 return None
 
             qr_url = qr_element.get_attribute("src")
@@ -115,6 +162,13 @@ class WeWorkBrowser:
             resp = requests.get(qr_url, timeout=10)
             return resp.content
         except Exception as e:
+            # 截图看看到底渲染了什么
+            try:
+                debug_path = os.path.join(os.path.dirname(self.cookie_manager.cookie_file), "debug_login_error.png")
+                page.screenshot(path=debug_path)
+                logger.info(f"错误时截图已保存: {debug_path}")
+            except Exception:
+                pass
             logger.error(f"截取二维码失败: {e}")
             return None
 
@@ -185,16 +239,22 @@ class WeWorkBrowser:
         return all_ok
 
     def keep_alive(self) -> bool:
-        """Cookie 保活：用已有 Cookie 访问管理后台检查登录态。有效返回 True，失效会通知。"""
+        """Cookie 保活：用已有 Cookie 直接访问管理后台首页检查登录态。
+        注意：不能访问登录页 (loginpage_wx)，否则会触发重新登录流程导致企业微信客户端被踢下线。
+        有效返回 True，失效会通知。"""
         page = None
         try:
-            page = self._start_browser()
+            page = self._start_browser_to_home()
             if self.check_login_status(page):
                 self._save_current_cookies()
                 logger.info("Cookie 保活成功")
                 return True
 
-            logger.info("Cookie 已失效，推送二维码通知")
+            logger.info("Cookie 已失效，关闭当前浏览器，重新打开登录页")
+            self._close_browser()
+
+            # 用干净浏览器（不加载旧 Cookie）访问登录页获取二维码
+            page = self._start_browser_clean()
             return self._handle_expired_cookie(page)
         except Exception as e:
             logger.error(f"Cookie 保活异常: {e}")
@@ -204,11 +264,19 @@ class WeWorkBrowser:
             self._close_browser()
 
     def _handle_expired_cookie(self, page: Page) -> bool:
-        """处理 Cookie 失效：截图 → 通知 → 等待扫码 → 保存新 Cookie"""
+        """处理 Cookie 失效：截图 → 保存二维码文件 → 通知 → 等待扫码 → 保存新 Cookie"""
         qr_data = self.capture_qrcode(page)
         if not qr_data:
             self.notifier.send_text("Cookie 已失效但未能获取登录二维码，请手动处理")
             return False
+
+        # 保存二维码到文件，供控制台展示
+        try:
+            with open(self.qrcode_file, "wb") as f:
+                f.write(qr_data)
+            logger.info(f"二维码已保存到 {self.qrcode_file}")
+        except Exception as e:
+            logger.warning(f"保存二维码文件失败: {e}")
 
         self.notifier.send_image_with_text(qr_data, "企业微信 Cookie 已失效，请扫码登录")
         logger.info("二维码已推送，等待扫码...")
@@ -216,16 +284,22 @@ class WeWorkBrowser:
         if self._wait_for_scan_login(page):
             self._save_current_cookies()
             self.notifier.send_text("扫码登录成功，Cookie 已更新")
+            # 登录成功后删除二维码文件
+            try:
+                os.remove(self.qrcode_file)
+            except OSError:
+                pass
             return True
         else:
             self.notifier.send_text("扫码超时，下次定时任务将重试")
             return False
 
     def run_update_flow(self, ip: str, app_ids: list[str]) -> bool:
-        """完整更新流程：启动浏览器 → 检查登录态 → 修改 IP 或通知扫码"""
+        """完整更新流程：启动浏览器 → 检查登录态 → 修改 IP 或通知扫码
+        从后台首页进入，避免访问登录页踢掉客户端会话。"""
         page = None
         try:
-            page = self._start_browser()
+            page = self._start_browser_to_home()
 
             if self.check_login_status(page):
                 ok = self.update_trusted_ip(page, ip, app_ids)
@@ -236,7 +310,11 @@ class WeWorkBrowser:
                     self.notifier.send_text(f"可信 IP 更新部分失败，IP: {ip}")
                 return ok
 
-            logger.info("Cookie 无效，需要重新登录")
+            logger.info("Cookie 无效，关闭当前浏览器，重新打开登录页")
+            self._close_browser()
+
+            # 用干净浏览器（不加载旧 Cookie）访问登录页
+            page = self._start_browser_clean()
             if not self._handle_expired_cookie(page):
                 return False
 

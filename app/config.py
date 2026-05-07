@@ -21,6 +21,11 @@ class Settings:
         self.cookie_file: str = os.path.join(self.data_dir, "cookies.json")
         self.ip_file: str = os.path.join(self.data_dir, "current_ip.txt")
 
+        # 控制台配置
+        self.console_username: str = self._get("CONSOLE_USERNAME", default="admin")
+        self.console_password: str = self._get("CONSOLE_PASSWORD", default="admin123")
+        self.password_hash_file: str = os.path.join(self.data_dir, "password.hash")
+
         os.makedirs(self.data_dir, exist_ok=True)
 
     @staticmethod
