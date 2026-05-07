@@ -31,10 +31,10 @@ cp .env.example .env
 
 ```env
 # 企业微信应用 ID（多个用逗号分隔）
-WEWORK_APP_IDS=5629502400597285
+WEWORK_APP_IDS=your_app_id_here
 
 # 企业微信群机器人 Webhook Key
-WEWORK_WEBHOOK_KEY=15bed486-0cfe-47c0-a0ed-9d89e34f94e5
+WEWORK_WEBHOOK_KEY=your_webhook_key_here
 
 # IP 检测周期（默认每 10 分钟）
 IP_CHECK_CRON=*/10 * * * *
@@ -84,13 +84,7 @@ python -m app.main
 ### Docker 部署
 
 ```bash
-docker build -t wechat-trustip .
-docker run -d -p 8000:8000 --env-file .env wechat-trustip
-```
-
-### Docker Compose
-
-```bash
+# 启动服务
 docker-compose up -d
 ```
 

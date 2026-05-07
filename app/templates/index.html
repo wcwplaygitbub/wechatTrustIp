@@ -83,4 +83,37 @@
         </button>
     </form>
 </div>
+
+<!-- 验证码输入区域（自动检测） -->
+<div id="captcha-section" class="hidden bg-yellow-50 border border-yellow-300 rounded-lg shadow p-6 mt-8">
+    <h3 class="text-lg font-bold mb-3 text-yellow-700">需要输入验证码</h3>
+    <p class="text-sm text-gray-600 mb-3">检测到企业微信要求短信验证，请输入收到的验证码</p>
+    <form method="post" action="/console/submit-captcha" class="flex gap-3 items-center">
+        <input type="text" name="captcha_code" maxlength="6" placeholder="请输入短信验证码"
+            class="border rounded px-3 py-2 text-lg w-48 tracking-widest text-center" required>
+        <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">
+            提交验证码
+        </button>
+    </form>
+</div>
+
+<script>
+    // 轮询检查是否需要验证码
+    setInterval(function() {
+        fetch('/console/captcha-status')
+            .then(r => r.json())
+            .then(data => {
+                const section = document.getElementById('captcha-section');
+                if (data.needed) {
+                    section.classList.remove('hidden');
+                    // 自动聚焦到输入框
+                    const input = section.querySelector('input[name="captcha_code"]');
+                    if (input) input.focus();
+                } else {
+                    section.classList.add('hidden');
+                }
+            })
+            .catch(() => {});
+    }, 1000);
+</script>
 {% endblock %}

@@ -93,6 +93,22 @@ class TaskScheduler:
         logger.info("开始 Cookie 保活任务")
         self.browser.keep_alive()
 
+    def _force_update_job(self):
+        """强制更新 IP（不管是否变化）"""
+        logger.info("开始强制更新 IP 任务")
+        ip = self.ip_checker.get_current_ip()
+        if not ip:
+            logger.error("强制更新: 获取 IP 失败")
+            return
+        ok = self.browser.run_update_flow(ip, self.app_ids)
+        if ok:
+            self.ip_checker.save_ip(ip)
+            self._last_ip = ip
+            self.notifier.send_text(f"强制更新成功，IP: {ip}")
+        else:
+            logger.error("强制更新失败")
+            self.notifier.send_text(f"强制更新失败，IP: {ip}")
+
     def trigger_check(self) -> dict:
         """手动触发一次 IP 检测，返回结果摘要"""
         ip = self.ip_checker.get_current_ip()

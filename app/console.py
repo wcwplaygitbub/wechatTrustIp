@@ -326,21 +326,9 @@ def force_update(request: Request):
         return auth
 
     try:
-        from app.main import scheduler, ip_checker, browser
-        ip = ip_checker.get_current_ip()
-        if ip:
-            ok = browser.run_update_flow(ip, settings.wework_app_ids)
-            if ok:
-                ip_checker.save_ip(ip)
-                return RedirectResponse(url="/console/?toast=强制更新成功&toast_type=success", status_code=303)
-            else:
-                # 更新失败（Cookie 失效后未扫码），删除失效 Cookie，下次显示二维码
-                if os.path.exists(settings.cookie_file):
-                    os.remove(settings.cookie_file)
-                qrcode = os.path.join(settings.data_dir, "qrcode.png")
-                return RedirectResponse(url="/console/?toast=Cookie 已失效，需要重新扫码&toast_type=error", status_code=303)
-        else:
-            return RedirectResponse(url="/console/?toast=获取当前 IP 失败&toast_type=error", status_code=303)
+        from app.main import scheduler
+        scheduler._executor.submit(scheduler._force_update_job)
+        return RedirectResponse(url="/console/?toast=强制更新任务已提交，请查看日志&toast_type=success", status_code=303)
     except Exception as e:
         return RedirectResponse(url=f"/console/?toast=提交失败: {e}&toast_type=error", status_code=303)
 
@@ -357,3 +345,25 @@ def clear_cookies(request: Request):
         return RedirectResponse(url="/console/?toast=Cookie 已清除&toast_type=success", status_code=303)
     except Exception as e:
         return RedirectResponse(url=f"/console/?toast=清除失败: {e}&toast_type=error", status_code=303)
+
+
+@router.get("/captcha-status")
+def captcha_status(request: Request):
+    """检查是否需要输入验证码"""
+    captcha_flag = os.path.join(settings.data_dir, "captcha_needed.txt")
+    return {"needed": os.path.exists(captcha_flag)}
+
+
+@router.post("/submit-captcha")
+async def submit_captcha(request: Request):
+    """提交验证码"""
+    form = await request.form()
+    code = form.get("captcha_code", "").strip()
+    if not code:
+        return RedirectResponse(url="/console/?toast=验证码不能为空&toast_type=error", status_code=303)
+
+    captcha_file = os.path.join(settings.data_dir, "captcha_code.txt")
+    with open(captcha_file, "w") as f:
+        f.write(code)
+
+    return RedirectResponse(url="/console/?toast=验证码已提交&toast_type=success", status_code=303)
