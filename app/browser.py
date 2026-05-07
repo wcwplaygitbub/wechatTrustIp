@@ -119,19 +119,43 @@ class WeWorkBrowser:
             return None
 
     def _wait_for_scan_login(self, page: Page) -> bool:
-        """轮询等待用户扫码登录，成功返回 True"""
+        """轮询等待用户扫码登录，成功返回 True。
+        不能导航走，否则会打断页面上的二维码轮询 JS，导致收不到扫码回调。
+        通过检查 URL 变化、iframe 消失或登录元素出现来判断。"""
         interval = 5
         elapsed = 0
+        login_url_prefix = "https://work.weixin.qq.com/wework_admin/loginpage_wx"
+
         while elapsed < self.qr_timeout:
             time.sleep(interval)
             elapsed += interval
             try:
-                page.wait_for_selector(SELECTOR_LOGIN_SUCCESS, timeout=3000)
-                logger.info("扫码登录成功")
-                return True
-            except Exception:
-                pass
-            logger.info(f"等待扫码... ({elapsed}/{self.qr_timeout}s)")
+                current_url = page.url
+                logger.info(f"等待扫码... ({elapsed}/{self.qr_timeout}s) URL: {current_url}")
+
+                # 情况1：URL 已经跳转离开登录页
+                if not current_url.startswith(login_url_prefix):
+                    logger.info(f"扫码登录成功（URL 已跳转: {current_url}）")
+                    return True
+
+                # 情况2：URL 没变但页面内容变了（登录元素出现）
+                try:
+                    page.wait_for_selector(SELECTOR_LOGIN_SUCCESS, timeout=2000)
+                    logger.info("扫码登录成功（检测到登录元素）")
+                    return True
+                except Exception:
+                    pass
+
+                # 情况3：iframe 消失了（二维码区域不见了，说明页面状态变了）
+                iframe_element = page.query_selector(SELECTOR_IFRAME)
+                if iframe_element is None:
+                    logger.info("扫码登录成功（iframe 已消失）")
+                    return True
+
+            except Exception as e:
+                logger.warning(f"轮询检查异常: {e}")
+
+        logger.error("扫码超时")
         return False
 
     def update_trusted_ip(self, page: Page, ip: str, app_ids: list[str]) -> bool:
