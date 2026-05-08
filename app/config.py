@@ -1,47 +1,75 @@
 import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
+from pydantic import field_validator
 
-load_dotenv()
 
+class Settings(BaseSettings):
+    # 企微配置
+    wework_app_ids: list[str] = []
+    wework_webhook_key: str = ""
 
-class Settings:
-    def __init__(self):
-        self.wework_app_ids: list[str] = self._parse_list("WEWORK_APP_IDS", required=True)
-        self.wework_webhook_key: str = self._get("WEWORK_WEBHOOK_KEY", required=True)
-        self.ip_check_cron: str = self._get("IP_CHECK_CRON", default="*/10 * * * *")
-        self.keep_alive_interval_minutes: int = int(self._get("KEEP_ALIVE_INTERVAL_MINUTES", default="20"))
-        self.headless: bool = self._get("HEADLESS", default="true").lower() == "true"
-        self.qr_timeout_seconds: int = int(self._get("QR_TIMEOUT_SECONDS", default="120"))
-        self.port: int = int(self._get("PORT", default="8000"))
+    # 调度配置
+    ip_check_cron: str = "*/10 * * * *"
+    keep_alive_interval_minutes: int = 20
+    headless: bool = True
+    qr_timeout_seconds: int = 120
+    port: int = 8000
 
-        self.wework_webhook_url: str = (
-            f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={self.wework_webhook_key}"
-        )
-        self.data_dir: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-        self.cookie_file: str = os.path.join(self.data_dir, "cookies.json")
-        self.ip_file: str = os.path.join(self.data_dir, "current_ip.txt")
+    # 日志配置
+    log_file_max_mb: int = 100
+    log_file_backup_count: int = 3
 
-        # 控制台配置
-        self.console_username: str = self._get("CONSOLE_USERNAME", default="admin")
-        self.console_password: str = self._get("CONSOLE_PASSWORD", default="admin123")
-        self.console_url: str = self._get("CONSOLE_URL", default="http://localhost:8000/console/")
-        self.password_hash_file: str = os.path.join(self.data_dir, "password.hash")
+    # 控制台配置
+    console_username: str = "admin"
+    console_password: str = "admin123"
+    console_url: str = "http://localhost:8000/console/"
+    console_secret_key: str = ""
 
+    @field_validator("wework_app_ids", mode="before")
+    @classmethod
+    def parse_app_ids(cls, v):
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        if isinstance(v, (int, float)):
+            return [str(v)]
+        if isinstance(v, list):
+            return [str(item) for item in v]
+        return []
+
+    @property
+    def wework_webhook_url(self) -> str:
+        return f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={self.wework_webhook_key}"
+
+    @property
+    def data_dir(self) -> str:
+        return os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+
+    @property
+    def cookie_file(self) -> str:
+        return os.path.join(self.data_dir, "cookies.json")
+
+    @property
+    def ip_file(self) -> str:
+        return os.path.join(self.data_dir, "current_ip.txt")
+
+    @property
+    def log_file(self) -> str:
+        return os.path.join(self.data_dir, "app.log")
+
+    @property
+    def password_hash_file(self) -> str:
+        return os.path.join(self.data_dir, "password.hash")
+
+    def model_post_init(self, __context):
         os.makedirs(self.data_dir, exist_ok=True)
+        if not self.console_secret_key:
+            object.__setattr__(self, "console_secret_key", self.wework_webhook_key)
 
-    @staticmethod
-    def _get(key: str, default: str | None = None, required: bool = False) -> str:
-        value = os.getenv(key, default)
-        if required and not value:
-            raise ValueError(f"环境变量 {key} 未设置，请在 .env 文件中配置")
-        return value or ""
-
-    @staticmethod
-    def _parse_list(key: str, required: bool = False) -> list[str]:
-        raw = os.getenv(key, "")
-        if required and not raw:
-            raise ValueError(f"环境变量 {key} 未设置，请在 .env 文件中配置")
-        return [item.strip() for item in raw.split(",") if item.strip()]
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
 
 settings = Settings()

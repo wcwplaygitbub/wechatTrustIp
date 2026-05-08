@@ -5,11 +5,11 @@
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
     <div class="bg-white rounded-lg shadow p-4">
         <div class="text-sm text-gray-500">当前公网 IP</div>
-        <div class="text-xl font-mono mt-1">{{ current_ip or '未获取' }}</div>
+        <div id="current-ip" class="text-xl font-mono mt-1">{{ current_ip or '未获取' }}</div>
     </div>
     <div class="bg-white rounded-lg shadow p-4">
         <div class="text-sm text-gray-500">已注册 IP</div>
-        <div class="mt-1">
+        <div id="registered-ip" class="mt-1">
             {% if registered_ip %}
                 <span class="text-xl font-mono">{{ registered_ip }}</span>
             {% else %}
@@ -19,7 +19,7 @@
     </div>
     <div class="bg-white rounded-lg shadow p-4">
         <div class="text-sm text-gray-500">IP 状态</div>
-        <div class="mt-1">
+        <div id="ip-status" class="mt-1">
             {% if ip_match %}
             <span class="inline-block bg-green-100 text-green-800 text-sm px-2 py-1 rounded">IP 一致</span>
             {% elif registered_ip %}
@@ -31,7 +31,7 @@
     </div>
     <div class="bg-white rounded-lg shadow p-4">
         <div class="text-sm text-gray-500">Cookie 状态</div>
-        <div class="mt-1">
+        <div id="cookie-status" class="mt-1">
             {% if has_cookie %}
             <span class="inline-block bg-green-100 text-green-800 text-sm px-2 py-1 rounded">有效</span>
             {% else %}
@@ -41,55 +41,86 @@
     </div>
 </div>
 
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
     <div class="bg-white rounded-lg shadow p-4">
         <div class="text-sm text-gray-500">监控应用</div>
-        <div class="text-sm font-mono mt-1">{{ app_ids | join(', ') }}</div>
+        <div id="app-ids" class="text-sm font-mono mt-1">{{ app_ids | join(', ') }}</div>
     </div>
     <div class="bg-white rounded-lg shadow p-4">
         <div class="text-sm text-gray-500">下次 IP 检测</div>
-        <div class="text-sm font-mono mt-1">{{ next_run or '未知' }}</div>
+        <div id="next-run" class="text-sm font-mono mt-1">{{ next_run or '未知' }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-sm text-gray-500">上次成功更新</div>
+        <div id="last-update-time" class="text-sm font-mono mt-1">{{ last_update_time or '未知' }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="text-sm text-gray-500">服务运行时长</div>
+        <div id="uptime" class="text-sm font-mono mt-1">{{ uptime }}</div>
     </div>
 </div>
 
-{% if has_qrcode %}
-<div class="bg-white rounded-lg shadow p-6 mb-8">
+<!-- D4: 每个 App 的更新状态 -->
+<div id="app-status-section" class="bg-white rounded-lg shadow p-4 mb-8 hidden">
+    <div class="text-sm text-gray-500 mb-2">应用更新状态</div>
+    <div id="app-status-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+</div>
+
+<div id="qrcode-section" class="bg-white rounded-lg shadow p-6 mb-8 {% if not has_qrcode %}hidden{% endif %}">
     <h3 class="text-lg font-bold mb-3 text-red-600">需要扫码登录</h3>
     <p class="text-sm text-gray-500 mb-3">Cookie 已失效，请用企业微信扫描下方二维码重新登录</p>
-    <img src="/console/qrcode" alt="登录二维码" class="w-48 h-48 border rounded">
-    <p class="text-xs text-gray-400 mt-2">扫码成功后此区域会自动消失，页面会自动刷新</p>
-    <script>
-        setTimeout(() => location.reload(), 15000);
-    </script>
+    <img id="qrcode-img" src="/console/qrcode" alt="登录二维码" class="w-48 h-48 border rounded"
+         onerror="this.parentElement.style.display='none'">
+    <p class="text-xs text-gray-400 mt-2">扫码成功后此区域会自动消失</p>
 </div>
-{% endif %}
 
 <h2 class="text-xl font-bold mb-4">操作</h2>
-<div class="flex flex-wrap gap-3">
-    <form method="post" action="/console/trigger-check">
-        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
-            触发 IP 检测
-        </button>
-    </form>
-    <form method="post" action="/console/force-update">
-        <button type="submit" class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600 transition">
-            强制更新 IP
-        </button>
-    </form>
-    <form method="post" action="/console/clear-cookies">
-        <button type="submit" onclick="return confirm('确定清除 Cookie？下次需要重新扫码登录。')"
-            class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition">
-            清除 Cookie
-        </button>
-    </form>
+<div class="flex flex-wrap gap-3 mb-8">
+    <button id="btn-trigger" onclick="doAction(this, '/console/trigger-check', '触发 IP 检测')"
+        class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
+        触发 IP 检测
+    </button>
+    <button id="btn-force" onclick="doAction(this, '/console/force-update', '强制更新 IP')"
+        class="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 transition">
+        强制更新 IP
+    </button>
+    <button id="btn-clear" onclick="doAction(this, '/console/clear-cookies', '清除 Cookie', true)"
+        class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition">
+        清除 Cookie
+    </button>
 </div>
 
-<!-- 验证码输入区域（自动检测） -->
-<div id="captcha-section" class="hidden bg-yellow-50 border border-yellow-300 rounded-lg shadow p-6 mt-8">
+<!-- D5: 最近事件时间线 -->
+<div id="events-section" class="bg-white rounded-lg shadow p-4 mb-8 {% if not recent_events %}hidden{% endif %}">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-bold">最近事件</h3>
+        <a href="/console/logs" class="text-sm text-blue-600 hover:underline">查看全部日志</a>
+    </div>
+    <div id="events-list">
+    {% for e in recent_events %}
+        <div class="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
+            <span class="text-sm
+                {% if e.level == 'success' %}text-green-600
+                {% elif e.level == 'error' %}text-red-600
+                {% elif e.level == 'warning' %}text-yellow-600
+                {% else %}text-gray-600{% endif %}">
+                {% if e.level == 'success' %}&#10003;
+                {% elif e.level == 'error' %}&#10007;
+                {% elif e.level == 'warning' %}&#9888;
+                {% else %}&#8226;{% endif %}
+            </span>
+            <span class="text-xs text-gray-400 w-36 flex-shrink-0">{{ e.time }}</span>
+            <span class="text-sm text-gray-700">{{ e.message }}</span>
+        </div>
+    {% endfor %}
+    </div>
+</div>
+
+<div id="captcha-section" class="hidden bg-yellow-50 border border-yellow-300 rounded-lg shadow p-6">
     <h3 class="text-lg font-bold mb-3 text-yellow-700">需要输入验证码</h3>
     <p class="text-sm text-gray-600 mb-3">检测到企业微信要求短信验证，请输入收到的验证码</p>
-    <form method="post" action="/console/submit-captcha" class="flex gap-3 items-center">
-        <input type="text" name="captcha_code" maxlength="6" placeholder="请输入短信验证码"
+    <form id="captcha-form" class="flex gap-3 items-center">
+        <input type="text" name="captcha_code" id="captcha-input" maxlength="6" placeholder="请输入短信验证码"
             class="border rounded px-3 py-2 text-lg w-48 tracking-widest text-center" required>
         <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">
             提交验证码
@@ -98,22 +129,155 @@
 </div>
 
 <script>
-    // 轮询检查是否需要验证码
-    setInterval(function() {
-        fetch('/console/captcha-status')
-            .then(r => r.json())
-            .then(data => {
-                const section = document.getElementById('captcha-section');
-                if (data.needed) {
-                    section.classList.remove('hidden');
-                    // 自动聚焦到输入框
-                    const input = section.querySelector('input[name="captcha_code"]');
-                    if (input) input.focus();
-                } else {
-                    section.classList.add('hidden');
-                }
-            })
-            .catch(() => {});
-    }, 1000);
+function doAction(btn, url, label, confirmFirst) {
+    if (confirmFirst && !confirm('确定' + label + '？下次需要重新扫码登录。')) return;
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '处理中...';
+    apiFetch(url, {method: 'POST'}).then(function(data) {
+        showToast(data.message, data.ok ? 'success' : 'error');
+        refreshStatus();
+    }).catch(function() {
+        showToast(label + '失败', 'error');
+    }).finally(function() {
+        btn.disabled = false;
+        btn.textContent = original;
+    });
+}
+
+document.getElementById('captcha-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var input = document.getElementById('captcha-input');
+    var code = input.value.trim();
+    if (!code) return;
+    apiFetch('/console/submit-captcha', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'captcha_code=' + encodeURIComponent(code)
+    }).then(function(data) {
+        showToast(data.message, data.ok ? 'success' : 'error');
+        if (data.ok) {
+            input.value = '';
+            document.getElementById('captcha-section').classList.add('hidden');
+        }
+    });
+});
+
+function updateStatusUI(data) {
+    var el;
+
+    el = document.getElementById('current-ip');
+    el.textContent = data.current_ip || '未获取';
+
+    el = document.getElementById('registered-ip');
+    el.innerHTML = data.registered_ip
+        ? '<span class="text-xl font-mono">' + data.registered_ip + '</span>'
+        : '<span class="text-gray-400">未注册</span>';
+
+    el = document.getElementById('ip-status');
+    if (data.ip_match) {
+        el.innerHTML = '<span class="inline-block bg-green-100 text-green-800 text-sm px-2 py-1 rounded">IP 一致</span>';
+    } else if (data.registered_ip) {
+        el.innerHTML = '<span class="inline-block bg-red-100 text-red-800 text-sm px-2 py-1 rounded">IP 不一致，需更新</span>';
+    } else {
+        el.innerHTML = '<span class="inline-block bg-yellow-100 text-yellow-800 text-sm px-2 py-1 rounded">尚未注册</span>';
+    }
+
+    el = document.getElementById('cookie-status');
+    el.innerHTML = data.has_cookie
+        ? '<span class="inline-block bg-green-100 text-green-800 text-sm px-2 py-1 rounded">有效</span>'
+        : '<span class="inline-block bg-red-100 text-red-800 text-sm px-2 py-1 rounded">无 Cookie</span>';
+
+    el = document.getElementById('next-run');
+    el.textContent = data.next_run || '未知';
+
+    el = document.getElementById('app-ids');
+    el.textContent = (data.app_ids || []).join(', ');
+
+    // D1: 上次成功更新时间
+    el = document.getElementById('last-update-time');
+    el.textContent = data.last_update_time || '未知';
+
+    // D3: 运行时长
+    el = document.getElementById('uptime');
+    el.textContent = data.uptime || '计算中...';
+
+    // D4: App 状态
+    var appSection = document.getElementById('app-status-section');
+    var appList = document.getElementById('app-status-list');
+    var statuses = data.app_statuses || [];
+    if (statuses.length > 0) {
+        appSection.classList.remove('hidden');
+        appList.innerHTML = statuses.map(function(s) {
+            var icon = s.success ? '<span class="text-green-600">&#10003;</span>' : '<span class="text-red-600">&#10007;</span>';
+            return '<div class="flex items-center gap-2 text-sm">'
+                + icon + ' <span class="font-mono">' + s.app_id + '</span>'
+                + ' <span class="text-gray-400 text-xs">' + s.time + '</span>'
+                + '</div>';
+        }).join('');
+    } else {
+        appSection.classList.add('hidden');
+    }
+
+    // 二维码区域
+    var qrSection = document.getElementById('qrcode-section');
+    if (data.has_qrcode) {
+        qrSection.classList.remove('hidden');
+    } else {
+        qrSection.classList.add('hidden');
+    }
+
+    // 验证码区域
+    var capSection = document.getElementById('captcha-section');
+    if (data.captcha_needed) {
+        capSection.classList.remove('hidden');
+        document.getElementById('captcha-input').focus();
+    } else {
+        capSection.classList.add('hidden');
+    }
+
+    // D5: 最近事件
+    var eventsSection = document.getElementById('events-section');
+    var eventsList = document.getElementById('events-list');
+    var events = data.recent_events || [];
+    if (events.length > 0) {
+        eventsSection.classList.remove('hidden');
+        eventsList.innerHTML = events.map(function(e) {
+            var levelClass = e.level === 'success' ? 'text-green-600'
+                : e.level === 'error' ? 'text-red-600'
+                : e.level === 'warning' ? 'text-yellow-600'
+                : 'text-gray-600';
+            var icon = e.level === 'success' ? '&#10003;'
+                : e.level === 'error' ? '&#10007;'
+                : e.level === 'warning' ? '&#9888;'
+                : '&#8226;';
+            return '<div class="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">'
+                + '<span class="text-sm ' + levelClass + '">' + icon + '</span>'
+                + '<span class="text-xs text-gray-400 w-36 flex-shrink-0">' + e.time + '</span>'
+                + '<span class="text-sm text-gray-700">' + e.message + '</span>'
+                + '</div>';
+        }).join('');
+    } else {
+        eventsSection.classList.add('hidden');
+    }
+}
+
+function refreshStatus() {
+    apiFetch('/console/status').then(function(data) {
+        updateStatusUI(data);
+    }).catch(function() {});
+}
+
+var _pollTimer = null;
+function smartPoll() {
+    apiFetch('/console/status').then(function(data) {
+        updateStatusUI(data);
+        var fast = data.captcha_needed || data.has_qrcode;
+        _pollTimer = setTimeout(smartPoll, fast ? 2000 : 10000);
+    }).catch(function() {
+        _pollTimer = setTimeout(smartPoll, 10000);
+    });
+}
+smartPoll();
 </script>
 {% endblock %}

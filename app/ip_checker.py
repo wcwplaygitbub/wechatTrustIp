@@ -1,5 +1,7 @@
+import os
 import re
 import logging
+import tempfile
 import requests
 
 logger = logging.getLogger(__name__)
@@ -43,13 +45,18 @@ class IPChecker:
         return False
 
     def save_ip(self, ip: str):
-        with open(self.ip_file, "w") as f:
+        tmp = self.ip_file + ".tmp"
+        with open(tmp, "w") as f:
             f.write(ip)
+        os.replace(tmp, self.ip_file)
         logger.info(f"已保存 IP: {ip}")
 
-    def _load_ip(self) -> str | None:
+    def load_ip(self) -> str | None:
         try:
             with open(self.ip_file) as f:
                 return f.read().strip()
         except FileNotFoundError:
             return None
+
+    def _load_ip(self) -> str | None:
+        return self.load_ip()

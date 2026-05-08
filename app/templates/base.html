@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}控制台{% endblock %} - 企微IP管理</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
 </head>
 <body class="bg-gray-100 min-h-screen">
     <nav class="bg-white shadow mb-6">
@@ -22,12 +22,30 @@
     <div class="max-w-6xl mx-auto px-4">
         {% block content %}{% endblock %}
     </div>
-    {% if toast %}
-    <div id="toast" class="fixed bottom-6 right-6 px-4 py-2 rounded shadow-lg text-white
-        {% if toast_type == 'error' %}bg-red-500{% else %}bg-green-500{% endif %}">
-        {{ toast }}
-    </div>
-    <script>setTimeout(() => document.getElementById('toast').remove(), 3000)</script>
-    {% endif %}
+    <div id="toast-container"></div>
+    <script>
+    // 全局 toast 工具
+    function showToast(message, type) {
+        type = type || 'success';
+        var container = document.getElementById('toast-container');
+        var el = document.createElement('div');
+        el.className = 'fixed bottom-6 right-6 px-4 py-2 rounded shadow-lg text-white '
+            + (type === 'error' ? 'bg-red-500' : type === 'warning' ? 'bg-yellow-500' : 'bg-green-500');
+        el.textContent = message;
+        container.appendChild(el);
+        setTimeout(function() { el.remove(); }, 3000);
+    }
+
+    // 全局 fetch 封装：自动处理 401 跳转
+    function apiFetch(url, options) {
+        return fetch(url, options || {}).then(function(r) {
+            if (r.status === 401) {
+                window.location.href = '/console/login';
+                return Promise.reject('未登录');
+            }
+            return r.json();
+        });
+    }
+    </script>
 </body>
 </html>
