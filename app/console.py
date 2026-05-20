@@ -381,7 +381,7 @@ def console_status(request: Request, user: str = Depends(require_login)):
         "registered_ip": registered_ip,
         "ip_match": registered_ip is not None and current_ip is not None and registered_ip == current_ip,
         "has_cookie": has_cookie,
-        "has_qrcode": not has_cookie and os.path.exists(qrcode_file),
+        "has_qrcode": os.path.exists(qrcode_file),
         "next_run": scheduler.get_next_check_time(),
         "captcha_needed": os.path.exists(captcha_flag),
         "app_ids": settings.wework_app_ids,

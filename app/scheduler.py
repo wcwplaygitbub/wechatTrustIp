@@ -75,7 +75,7 @@ class TaskScheduler:
     def _add_ip_check_job(self):
         try:
             self._scheduler.add_job(
-                func=self._check_ip_job,
+                func=self.submit_check,
                 trigger=CronTrigger.from_crontab(self.ip_check_cron),
                 name="IP 检测",
             )
@@ -158,6 +158,11 @@ class TaskScheduler:
         ok = future.result()
         if ok:
             self.ip_checker.save_ip(ip)
+            self._last_ip = ip
+            self.event_store.add("ip_update", f"可信 IP 更新成功: {ip}", "success",
+                                 {"ip": ip})
             return {"status": "ok", "message": "IP 已更新", "ip": ip}
         else:
+            self.event_store.add("ip_update", f"可信 IP 更新失败: {ip}", "error",
+                                 {"ip": ip})
             return {"status": "error", "message": "IP 更新失败", "ip": ip}
