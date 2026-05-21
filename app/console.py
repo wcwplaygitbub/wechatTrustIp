@@ -1,12 +1,15 @@
 import os
+import secrets
 import tempfile
 import time
+import asyncio
 
 import bcrypt
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response, JSONResponse
 from itsdangerous import Signer, BadSignature
 from starlette.templating import Jinja2Templates
+from starlette.responses import StreamingResponse
 
 from app.config import settings
 from app.log_buffer import log_buffer
@@ -86,6 +89,31 @@ def _verify_password(password: str) -> bool:
     if stored:
         return bcrypt.checkpw(password.encode(), stored.encode())
     return password == settings.console_password
+
+
+# ---- 验证码免登录一次性 token ----
+_captcha_tokens: dict[str, float] = {}  # token → 过期时间戳
+
+
+def generate_captcha_token(expire_seconds: int = 300) -> tuple[str, str]:
+    """生成一次性验证码 token，返回 (token, 完整 URL)"""
+    token = secrets.token_urlsafe(16)
+    _captcha_tokens[token] = time.time() + expire_seconds
+    url = f"{settings.console_url.rstrip('/')}/captcha?t={token}"
+    return token, url
+
+
+def _validate_captcha_token(token: str) -> bool:
+    """校验并销毁一次性 token，返回是否有效"""
+    expire = _captcha_tokens.pop(token, None)
+    if expire is None:
+        return False
+    # 清理过期 token
+    now = time.time()
+    expired_keys = [k for k, v in _captcha_tokens.items() if v < now]
+    for k in expired_keys:
+        del _captcha_tokens[k]
+    return expire > now
 
 
 # ---- 路由 ----
@@ -234,6 +262,11 @@ async def config_update(request: Request, user: str = Depends(require_login)):
                 scheduler.app_ids = ids
                 toast += "应用 ID 已更新. "
 
+        new_url = form.get("console_url", "").strip()
+        if new_url and new_url != settings.console_url:
+            settings.console_url = new_url
+            toast += "控制台地址已更新. "
+
         if not toast:
             toast = "无变更"
             toast_type = "info"
@@ -330,6 +363,56 @@ def captcha_status(user: str = Depends(require_login)):
     return {"needed": os.path.exists(captcha_flag)}
 
 
+@router.post("/simulate-captcha")
+def simulate_captcha(request: Request, user: str = Depends(require_login)):
+    """模拟验证码场景：创建标记文件 + 生成免登录链接 + 推送通知"""
+    import os as _os
+    # 创建验证码标记
+    flag_file = _os.path.join(settings.data_dir, "captcha_needed.txt")
+    with open(flag_file, "w") as f:
+        f.write(str(int(time.time())))
+    # 生成一次性链接
+    _, url = generate_captcha_token(expire_seconds=300)
+    # 推送企业微信通知
+    notifier = request.app.state.notifier
+    notifier.send_text(f"需要短信验证码，请点击链接输入: {url}")
+    # 通过 SSE 推送事件
+    event_store = request.app.state.event_store
+    event_store.add("captcha", "模拟验证码场景", "warning")
+    return {"ok": True, "captcha_url": url}
+
+
+@router.get("/captcha", response_class=HTMLResponse)
+def captcha_quick_page(request: Request, t: str = ""):
+    """免登录验证码页面：一次性 token 验证后自动登录"""
+    if not t or not _validate_captcha_token(t):
+        return RedirectResponse(url="/console/login", status_code=303)
+
+    # token 有效，自动设置登录 cookie
+    token = _make_token(settings.console_username)
+    response = templates.TemplateResponse("captcha_quick.html", {
+        "request": request,
+        "captcha_token": t,  # 用于提交时校验（但 token 已被销毁，提交不再需要）
+    })
+    response.set_cookie(_COOKIE_NAME, token, max_age=_COOKIE_MAX_AGE, httponly=True)
+    return response
+
+
+@router.post("/submit-captcha-quick")
+async def submit_captcha_quick(request: Request, user: str = Depends(require_login)):
+    """免登录用户提交验证码（页面已通过 token 设置了 cookie）"""
+    form = await request.form()
+    code = form.get("captcha_code", "").strip()
+    if not code:
+        return {"ok": False, "message": "验证码不能为空"}
+
+    captcha_file = os.path.join(settings.data_dir, "captcha_code.txt")
+    with open(captcha_file, "w") as f:
+        f.write(code)
+
+    return {"ok": True, "message": "验证码已提交，请等待处理"}
+
+
 @router.post("/submit-captcha")
 async def submit_captcha(request: Request, user: str = Depends(require_login)):
     form = await request.form()
@@ -342,6 +425,36 @@ async def submit_captcha(request: Request, user: str = Depends(require_login)):
         f.write(code)
 
     return {"ok": True, "message": "验证码已提交"}
+
+
+@router.get("/events")
+async def sse_events(request: Request, user: str = Depends(require_login)):
+    """SSE 推送端点：后端事件实时推送给前端"""
+    import json as _json
+
+    event_store: EventStore = request.app.state.event_store
+    q = event_store.subscribe()
+
+    async def event_stream():
+        try:
+            while True:
+                # 等待事件，同时检测客户端断开
+                try:
+                    entry = await asyncio.wait_for(q.get(), timeout=30)
+                    yield f"data: {_json.dumps(entry, ensure_ascii=False)}\n\n"
+                except asyncio.TimeoutError:
+                    # 心跳，防止连接超时断开
+                    yield ": heartbeat\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            event_store.unsubscribe(q)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/status")

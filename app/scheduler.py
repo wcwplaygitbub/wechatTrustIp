@@ -42,7 +42,7 @@ class TaskScheduler:
         self._add_ip_check_job()
         self._scheduler.start()
         logger.info("定时任务调度器已启动")
-        self._executor.submit(self._check_ip_job)
+        self._executor.submit(self._startup_job)
 
     @property
     def running(self) -> bool:
@@ -93,6 +93,24 @@ class TaskScheduler:
             logger.info(f"Cookie 保活任务已注册: 每 {self.keep_alive_interval_minutes} 分钟")
         except Exception as e:
             logger.error(f"Cookie 保活任务注册失败: {e}")
+
+    def _startup_job(self):
+        """启动时：登录企业微信校验可信 IP"""
+        logger.info("执行启动检查任务")
+        ip = self.ip_checker.get_current_ip()
+        if not ip:
+            logger.error("启动检查: 获取当前公网 IP 失败")
+            self.event_store.add("startup", "启动检查失败：获取公网 IP 失败", "error")
+            return
+
+        self._last_ip = ip
+        self.event_store.add("startup", f"启动检查：当前公网 IP 为 {ip}", "info")
+
+        ok = self.browser.startup_check(ip, self.app_ids)
+        if ok:
+            self.event_store.add("startup", f"启动检查完成：可信 IP 已确认为 {ip}", "success")
+        else:
+            self.event_store.add("startup", "启动检查失败：可信 IP 校验或更新失败", "error")
 
     def _check_ip_job(self):
         logger.info("开始 IP 检测任务")

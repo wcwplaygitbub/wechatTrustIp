@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import asyncio
 from datetime import datetime
 from collections import deque
 
@@ -13,6 +14,7 @@ class EventStore:
         self._max = max_events
         self._lock = threading.Lock()
         self._events: list[dict] = []
+        self._subscribers: list[asyncio.Queue] = []
         self._load()
 
     def _load(self):
@@ -42,6 +44,32 @@ class EventStore:
             if len(self._events) > self._max:
                 self._events = self._events[-self._max:]
             self._save()
+        # 通知所有 SSE 订阅者
+        self._notify(entry)
+
+    def _notify(self, entry: dict):
+        """将事件放入所有订阅者的队列"""
+        dead = []
+        for q in self._subscribers:
+            try:
+                q.put_nowait(entry)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            self._subscribers.remove(q)
+
+    def subscribe(self) -> asyncio.Queue:
+        """注册一个 SSE 订阅者，返回事件队列"""
+        q = asyncio.Queue()
+        self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue):
+        """取消订阅"""
+        try:
+            self._subscribers.remove(q)
+        except ValueError:
+            pass
 
     def get_events(self, limit: int = 20) -> list[dict]:
         return list(reversed(self._events[-limit:]))

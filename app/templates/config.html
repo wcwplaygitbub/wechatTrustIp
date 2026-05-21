@@ -42,6 +42,12 @@
                 <input type="text" name="app_ids" value="{{ config.wework_app_ids | join(', ') }}"
                     class="mt-1 w-full border rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">控制台外部访问地址</label>
+                <input type="text" name="console_url" value="{{ config.console_url }}"
+                    class="mt-1 w-full border rounded px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-400 mt-1">用于生成验证码免登录链接，需从外部可访问</p>
+            </div>
             <button type="submit"
                 class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
                 保存并热更新

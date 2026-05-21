@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
         notifier=notifier,
         headless=settings.headless,
         qr_timeout=settings.qr_timeout_seconds,
+        event_store=event_store,
     )
     scheduler = TaskScheduler(
         ip_checker=ip_checker,

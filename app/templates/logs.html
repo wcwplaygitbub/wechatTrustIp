@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}日志{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-4">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
     <h2 class="text-xl font-bold">最近日志 <span id="total-count" class="text-sm font-normal text-gray-400">(共 {{ total }} 条)</span></h2>
     <div class="flex items-center gap-3">
         <div class="flex gap-1">
@@ -21,7 +21,8 @@
     </div>
 </div>
 <div class="bg-white rounded-lg shadow overflow-hidden">
-    <table class="w-full text-sm">
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm" style="min-width:600px">
         <thead class="bg-gray-50">
             <tr>
                 <th class="px-4 py-2 text-left text-gray-600 w-40">时间</th>
@@ -52,8 +53,9 @@
             {% endif %}
         </tbody>
     </table>
+    </div>
     <!-- 分页 -->
-    <div class="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+    <div class="flex flex-col sm:flex-row items-center justify-between px-4 py-3 border-t bg-gray-50 gap-2">
         <span id="page-info" class="text-sm text-gray-500">
             第 {{ page }} / {{ (total // page_size) + (1 if total % page_size > 0 else 0) }} 页，共 {{ total }} 条
         </span>

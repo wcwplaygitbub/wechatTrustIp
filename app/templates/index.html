@@ -98,8 +98,8 @@
     </div>
     <div id="events-list">
     {% for e in recent_events %}
-        <div class="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
-            <span class="text-sm
+        <div class="flex items-start gap-2 sm:gap-3 py-2 border-b border-gray-100 last:border-0">
+            <span class="text-sm flex-shrink-0
                 {% if e.level == 'success' %}text-green-600
                 {% elif e.level == 'error' %}text-red-600
                 {% elif e.level == 'warning' %}text-yellow-600
@@ -109,8 +109,10 @@
                 {% elif e.level == 'warning' %}&#9888;
                 {% else %}&#8226;{% endif %}
             </span>
-            <span class="text-xs text-gray-400 w-36 flex-shrink-0">{{ e.time }}</span>
-            <span class="text-sm text-gray-700">{{ e.message }}</span>
+            <div class="min-w-0 flex-1">
+                <div class="text-xs text-gray-400 mb-0.5">{{ e.time }}</div>
+                <div class="text-sm text-gray-700 break-words">{{ e.message }}</div>
+            </div>
         </div>
     {% endfor %}
     </div>
@@ -119,10 +121,10 @@
 <div id="captcha-section" class="hidden bg-yellow-50 border border-yellow-300 rounded-lg shadow p-6">
     <h3 class="text-lg font-bold mb-3 text-yellow-700">需要输入验证码</h3>
     <p class="text-sm text-gray-600 mb-3">检测到企业微信要求短信验证，请输入收到的验证码</p>
-    <form id="captcha-form" class="flex gap-3 items-center">
+    <form id="captcha-form" class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
         <input type="text" name="captcha_code" id="captcha-input" maxlength="6" placeholder="请输入短信验证码"
-            class="border rounded px-3 py-2 text-lg w-48 tracking-widest text-center" required>
-        <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">
+            class="border rounded px-3 py-2 text-lg w-full sm:w-48 tracking-widest text-center" required>
+        <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition whitespace-nowrap">
             提交验证码
         </button>
     </form>
@@ -251,11 +253,12 @@ function updateStatusUI(data) {
                 : e.level === 'error' ? '&#10007;'
                 : e.level === 'warning' ? '&#9888;'
                 : '&#8226;';
-            return '<div class="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">'
-                + '<span class="text-sm ' + levelClass + '">' + icon + '</span>'
-                + '<span class="text-xs text-gray-400 w-36 flex-shrink-0">' + e.time + '</span>'
-                + '<span class="text-sm text-gray-700">' + e.message + '</span>'
-                + '</div>';
+            return '<div class="flex items-start gap-2 sm:gap-3 py-2 border-b border-gray-100 last:border-0">'
+                + '<span class="text-sm flex-shrink-0 ' + levelClass + '">' + icon + '</span>'
+                + '<div class="min-w-0 flex-1">'
+                + '<div class="text-xs text-gray-400 mb-0.5">' + e.time + '</div>'
+                + '<div class="text-sm text-gray-700 break-words">' + e.message + '</div>'
+                + '</div></div>';
         }).join('');
     } else {
         eventsSection.classList.add('hidden');
@@ -268,16 +271,39 @@ function refreshStatus() {
     }).catch(function() {});
 }
 
-var _pollTimer = null;
-function smartPoll() {
-    apiFetch('/console/status').then(function(data) {
-        updateStatusUI(data);
-        var fast = data.captcha_needed || data.has_qrcode;
-        _pollTimer = setTimeout(smartPoll, fast ? 2000 : 10000);
-    }).catch(function() {
-        _pollTimer = setTimeout(smartPoll, 10000);
-    });
-}
-smartPoll();
+// 初始加载一次完整状态
+refreshStatus();
+
+// SSE 实时推送：后端事件变化时立即更新 UI
+var _sse = new EventSource('/console/events');
+_sse.onopen = function() {
+    console.log('[SSE] 连接已建立');
+    if (_sse._fallbackTimer) {
+        clearInterval(_sse._fallbackTimer);
+        _sse._fallbackTimer = null;
+    }
+};
+_sse.onmessage = function(event) {
+    console.log('[SSE] 收到事件:', event.data);
+    try {
+        var entry = JSON.parse(event.data);
+        // 收到任何事件都刷新完整状态
+        refreshStatus();
+    } catch(e) {}
+};
+_sse.onerror = function(e) {
+    console.log('[SSE] 连接错误，降级为轮询');
+    // SSE 断开后降级为轮询（30秒一次），重连由浏览器自动处理
+    if (!_sse._fallbackTimer) {
+        _sse._fallbackTimer = setInterval(refreshStatus, 30000);
+    }
+};
+_sse.onopen = function() {
+    // SSE 重连成功，清除降级轮询
+    if (_sse._fallbackTimer) {
+        clearInterval(_sse._fallbackTimer);
+        _sse._fallbackTimer = null;
+    }
+};
 </script>
 {% endblock %}

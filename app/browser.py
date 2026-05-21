@@ -40,11 +40,13 @@ class WeWorkBrowser:
         notifier: Notifier,
         headless: bool = True,
         qr_timeout: int = 120,
+        event_store=None,
     ):
         self.cookie_manager = cookie_manager
         self.notifier = notifier
         self.headless = headless
         self.qr_timeout = qr_timeout
+        self.event_store = event_store
 
         self._playwright = None
         self._browser: Browser | None = None
@@ -235,12 +237,14 @@ class WeWorkBrowser:
         with open(self.captcha_flag_file, "w") as f:
             f.write(str(int(time.time())))
 
-        from app.config import settings
-        self.notifier.send_text(f"需要短信验证码，请在控制台输入: {settings.console_url}")
+        # 生成一次性免登录链接
+        from app.console import generate_captcha_token
+        _, captcha_url = generate_captcha_token()
+        self.notifier.send_text(f"需要短信验证码，请点击链接输入: {captcha_url}")
 
         start = time.time()
         while time.time() - start < timeout:
-            time.sleep(1)  # 改为 1 秒轮询，更快响应
+            time.sleep(1)
             if os.path.exists(self.captcha_file):
                 try:
                     with open(self.captcha_file) as f:
@@ -248,10 +252,9 @@ class WeWorkBrowser:
                     if code:
                         logger.info(f"收到验证码: {code}")
                         os.remove(self.captcha_file)
-                        try:
-                            os.remove(self.captcha_flag_file)
-                        except OSError:
-                            pass
+                        # 通知前端验证码已处理
+                        if self.event_store:
+                            self.event_store.add("captcha", "验证码已提交，处理中", "info")
                         return code
                 except Exception:
                     pass
@@ -324,7 +327,7 @@ class WeWorkBrowser:
         return False
 
     def _detect_and_handle_captcha(self, page: Page) -> bool:
-        """检测并处理验证码页面"""
+        """检测并处理验证码页面，失败时重发新链接重试"""
         try:
             if not self._has_captcha_on_page(page):
                 return False
@@ -332,22 +335,127 @@ class WeWorkBrowser:
             logger.info("检测到验证码页面，截图保存")
             page.screenshot(path=os.path.join(self.data_dir, "captcha_screenshot.png"))
 
-            code = self._wait_for_captcha(timeout=180)
-            if not code:
-                return False
+            # 通知前端需要输入验证码
+            if self.event_store:
+                self.event_store.add("captcha", "需要输入短信验证码", "warning")
 
-            result = self._fill_captcha_code(page, code)
-            if result:
-                time.sleep(3)
-                # 等待页面跳转
-                try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
-                except Exception:
-                    pass
-            return result
+            max_retries = 3
+            for attempt in range(max_retries):
+                code = self._wait_for_captcha(timeout=180)
+                if not code:
+                    self.notifier.send_text("等待验证码超时")
+                    return False
+
+                result = self._fill_captcha_code(page, code)
+                if result:
+                    time.sleep(3)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                    except Exception:
+                        pass
+
+                    # 检查验证码是否真的通过了（页面上不再有验证码提示）
+                    if not self._has_captcha_on_page(page):
+                        logger.info("验证码验证成功")
+                        self.notifier.send_text("验证码验证成功")
+                        try:
+                            os.remove(self.captcha_flag_file)
+                        except OSError:
+                            pass
+                        return True
+                    else:
+                        logger.warning(f"验证码填写后页面仍有验证码提示（第 {attempt + 1} 次）")
+                else:
+                    logger.warning(f"验证码填写失败（第 {attempt + 1} 次）")
+
+                # 验证码填写失败或未通过，发新链接重试
+                if attempt < max_retries - 1:
+                    from app.console import generate_captcha_token
+                    _, captcha_url = generate_captcha_token()
+                    self.notifier.send_text(f"验证码错误，请重新输入: {captcha_url}")
+                    if self.event_store:
+                        self.event_store.add("captcha", "验证码错误，已发送新链接", "warning")
+
+            self.notifier.send_text("验证码多次错误，已放弃")
+            return False
         except Exception as e:
             logger.error(f"处理验证码异常: {e}")
             return False
+
+    def read_trusted_ip(self, page: Page, app_id: str) -> str | None:
+        """读取企业微信上某个应用当前配置的可信 IP"""
+        try:
+            url = f"{APP_BASE_URL}{app_id}"
+            page.goto(url)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            time.sleep(2)
+
+            # 检测验证码
+            self._detect_and_handle_captcha(page)
+
+            btn = page.wait_for_selector(SELECTOR_CONFIG_BTN, timeout=10000)
+            btn.click()
+
+            page.wait_for_selector(SELECTOR_IP_TEXTAREA, timeout=5000)
+            textarea = page.locator(SELECTOR_IP_TEXTAREA)
+            current_ip = textarea.input_value().strip()
+
+            logger.info(f"读取到应用 {app_id} 当前可信 IP: {current_ip or '(空)'}")
+            return current_ip if current_ip else None
+        except Exception as e:
+            logger.error(f"读取应用 {app_id} 可信 IP 失败: {e}")
+            return None
+
+    def startup_check(self, current_ip: str, app_ids: list[str]) -> bool:
+        """启动时登录企业微信，检查可信 IP 是否与当前公网 IP 一致"""
+        page = None
+        try:
+            logger.info("启动检查：登录企业微信校验可信 IP")
+            page = self._start_browser_to_home()
+
+            if not self.check_login_status(page):
+                logger.info("Cookie 无效，尝试扫码登录")
+                self._close_browser()
+                page = self._start_browser_clean()
+                if not self._handle_expired_cookie(page):
+                    logger.error("启动检查：登录失败")
+                    return False
+
+            # 读取第一个应用的可信 IP 作为代表
+            registered_ip = self.read_trusted_ip(page, app_ids[0])
+
+            if registered_ip == current_ip:
+                logger.info(f"启动检查：可信 IP 一致 ({current_ip})，无需更新")
+                # 同步保存到本地
+                self.ip_sync_save(current_ip)
+                return True
+
+            logger.info(f"启动检查：可信 IP 不一致 (企业微信: {registered_ip}, 当前: {current_ip})，开始更新")
+            ok = self.update_trusted_ip(page, current_ip, app_ids)
+            if ok:
+                self._save_current_cookies()
+                self.notifier.send_text(f"启动检查：可信 IP 已从 {registered_ip} 更新为 {current_ip}")
+                self.ip_sync_save(current_ip)
+            else:
+                self.notifier.send_text(f"启动检查：可信 IP 更新失败 ({registered_ip} -> {current_ip})")
+            return ok
+
+        except Exception as e:
+            logger.error(f"启动检查异常: {e}")
+            return False
+        finally:
+            self._close_browser()
+
+    def ip_sync_save(self, ip: str):
+        """同步保存 IP 到本地（通过 cookie_manager 的文件路径推断 ip_file）"""
+        try:
+            from app.config import settings
+            tmp = settings.ip_file + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(ip)
+            os.replace(tmp, settings.ip_file)
+        except Exception as e:
+            logger.warning(f"保存 IP 文件失败: {e}")
 
     def update_trusted_ip(self, page: Page, ip: str, app_ids: list[str]) -> bool:
         all_ok = True

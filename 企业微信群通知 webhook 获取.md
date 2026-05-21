@@ -1,0 +1,9 @@
+步骤 1
+![alt text](pics/image.png)
+步骤 2
+![alt text](pics/ec35d68634aa9076de2b94e59a6cffeb.png)
+步骤 3
+![alt text](pics/d91322cc624977e19f71819f0edc9701.png)
+步骤 4
+![alt text](pics/2ada57957f2d5e60423920d24c982f5f.png)
+记得保存 webhook。
